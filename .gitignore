@@ -31,7 +31,7 @@ qrc_*.cpp
 *.out
 *.app
 LuaAutoCompleteQt6
-
+LuaAutoCompleteQt6_autogen
 # Libraries
 *.a
 *.so
