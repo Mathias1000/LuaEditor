@@ -80,3 +80,4 @@ run.sh
 *.tar.gz
 *.zip
 LuaAutoCompleteQt6_autogen/
+LuaAutoCompleteQt6_autogen/
