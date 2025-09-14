@@ -1,0 +1,22 @@
+function lol(lol2,l)
+local x = 10
+
+if x > 5 then
+    print("x ist größer als 5")
+elseif x == 5 then
+    print("x ist genau 5")
+else
+    print("x ist kleiner als 5")
+end
+
+if x > 90 then
+    print("Hello")
+    end
+    
+    
+
+
+end
+
+
+lol("möb",1);

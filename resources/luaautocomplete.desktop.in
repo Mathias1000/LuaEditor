@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Lua AutoComplete Qt6
+Comment=Lua editor with intelligent autocompletion and syntax highlighting
+Exec=@CMAKE_INSTALL_PREFIX@/bin/@PROJECT_NAME@
+Icon=lua-icon
+Terminal=false
+Type=Application
+Categories=Development;TextEditor;IDE;
+MimeType=text/x-lua;
+StartupNotify=true
+StartupWMClass=LuaAutoCompleteQt6
+Keywords=lua;editor;programming;development;autocomplete;

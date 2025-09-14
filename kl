@@ -1,0 +1,23 @@
+Hinweise zur Integration
+
+Ersetzen: Überschreibe deine bestehenden LuaParser.* & AutoCompleter.* mit den obigen Versionen.
+
+Qt6: Alle nötigen Includes sind drin; keine QPointer-Verwendung mehr für LuaParser.
+
+C++23: Nutzt <algorithm>/std::clamp, std::optional, strukturierte Initialisierung usw.
+
+Projektweit parsen: Rufe für jede Datei parser.parseFile(code, filePath) auf. Ein resetProject() setzt die Tabellen zurück (z. B. beim Neuaufbau).
+
+IntelliSense:
+
+ohne Präfix → getGlobals(),
+
+nach X. → getMembers("X"),
+
+nach A.B. → getMembers("A.B"),
+
+nach X: → getMembers("X") gefiltert auf isMethod==true.
+
+Navigation (F12/Strg+F12): Am Cursor die Kette extrahieren (z. B. A.B.C), splitten in parent="A.B", name="C", dann findDefinition / findUsages.
+
+Wenn beim Einbinden noch etwas rappelt (andere Includes/Namensräume etc.), poste mir einfach die Fehlermeldung — ich passe das zielgenau an.
