@@ -79,3 +79,4 @@ run.sh
 *.rpm
 *.tar.gz
 *.zip
+LuaAutoCompleteQt6_autogen/
