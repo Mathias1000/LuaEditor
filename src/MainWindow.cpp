@@ -8,8 +8,8 @@
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
-    , m_editor(std::make_unique<LuaEditor>(m_parser,this))
-    , m_parser(std::make_unique<LuaParser>())
+    , m_parser(std::make_shared<LuaParser>())
+    , m_editor(std::make_unique<LuaEditor>(m_parser, this))
     , m_completer(std::make_unique<AutoCompleter>(this))
 {
     setupUi();
@@ -18,9 +18,13 @@ MainWindow::MainWindow(QWidget *parent)
     setupStatusBar();
     createConnections();
 
-    // Connect parser & completer
-    m_completer->setParser(m_parser.get());
+    // Connect completer to editor - this must happen after construction
+    m_completer->setWidget(m_editor.get());
     m_editor->setCompleter(m_completer.get());
+
+    // Add syntax highlighting
+    auto* highlighter = new LuaHighlighter(m_editor->document());
+    Q_UNUSED(highlighter) // Prevent unused variable warning
 
     updateWindowTitle();
     updateStatusBar();
@@ -117,9 +121,6 @@ void MainWindow::createConnections()
 
     connect(m_editor.get(), &LuaEditor::textChanged, this, &MainWindow::onTextChanged);
     connect(m_editor.get(), &LuaEditor::cursorPositionChanged, this, &MainWindow::onCursorPositionChanged);
-
-    connect(m_parser.get(), &LuaParser::parsingCompleted, this, &MainWindow::onParsingCompleted);
-    connect(m_parser.get(), &LuaParser::parsingError, this, &MainWindow::onParsingError);
 }
 
 // === File Handling ===
@@ -129,6 +130,7 @@ void MainWindow::newFile()
     if (maybeSave()) {
         m_editor->clear();
         setCurrentFile(QString());
+        updateSymbolsList();
     }
 }
 
@@ -157,26 +159,30 @@ void MainWindow::openFile(const QString& filePath)
 
     setCurrentFile(filePath);
     m_statusLabel->setText(tr("File loaded"));
+
+    // Parse the loaded file
+    m_parser->parseFile(m_editor->toPlainText(), filePath);
+    updateSymbolsList();
 }
 
-void MainWindow::saveFile()
+bool MainWindow::saveFile()
 {
     if (m_currentFile.isEmpty()) {
-        saveFileAs();
+        return saveFileAs();
     } else {
-        if (!saveDocument(m_currentFile))
-            QMessageBox::warning(this, tr("Save Error"), tr("Failed to save the file."));
+        return saveDocument(m_currentFile);
     }
 }
 
-void MainWindow::saveFileAs()
+bool MainWindow::saveFileAs()
 {
     const QString fileName = QFileDialog::getSaveFileName(
         this, tr("Save Lua File"), QString(),
         tr("Lua Files (*.lua);;All Files (*)"));
-    if (!fileName.isEmpty())
-        if (!saveDocument(fileName))
-            QMessageBox::warning(this, tr("Save Error"), tr("Failed to save the file."));
+    if (!fileName.isEmpty()) {
+        return saveDocument(fileName);
+    }
+    return false;
 }
 
 bool MainWindow::saveDocument(const QString& fileName)
@@ -196,7 +202,7 @@ bool MainWindow::saveDocument(const QString& fileName)
     return true;
 }
 
-// === Editor / Parser callbacks ===
+// === Editor callbacks ===
 
 void MainWindow::about()
 {
@@ -210,9 +216,11 @@ void MainWindow::onTextChanged()
     m_isModified = true;
     updateWindowTitle();
 
-    m_parser->parseAsync(m_editor->toPlainText());
-    m_parsingProgress->setVisible(true);
-    m_parsingProgress->setRange(0, 0);
+    // Parse the current content
+    m_parser->parseFile(m_editor->toPlainText(), m_currentFile.isEmpty() ? "untitled.lua" : m_currentFile);
+    updateSymbolsList();
+
+    m_statusLabel->setText(tr("Document modified"));
 }
 
 void MainWindow::onCursorPositionChanged()
@@ -220,20 +228,18 @@ void MainWindow::onCursorPositionChanged()
     updateStatusBar();
 }
 
-void MainWindow::onParsingCompleted()
+void MainWindow::updateSymbolsList()
 {
-    m_parsingProgress->setVisible(false);
-    m_statusLabel->setText(tr("Parsing completed"));
-
     m_symbolsList->clear();
-    for (const auto& sym : m_parser->getSymbols())
-        m_symbolsList->addItem(QString::fromStdString(sym));
-}
 
-void MainWindow::onParsingError(const QString& error)
-{
-    m_parsingProgress->setVisible(false);
-    m_statusLabel->setText(tr("Parsing error: %1").arg(error));
+    // Get globals from parser
+    const QStringList globals = m_parser->getGlobals();
+    for (const QString& symbol : globals) {
+        m_symbolsList->addItem("🌐 " + symbol); // Global symbol
+    }
+
+    // You could also add members if you want to show all symbols
+    // For now, just showing globals for simplicity
 }
 
 // === Window helpers ===
@@ -286,14 +292,20 @@ bool MainWindow::maybeSave()
         QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
 
     switch (ret) {
-    case QMessageBox::Save: return saveFile(), true;
-    case QMessageBox::Cancel: return false;
-    default: return true;
+    case QMessageBox::Save:
+        return saveFile();
+    case QMessageBox::Cancel:
+        return false;
+    default:
+        return true;
     }
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
-    if (maybeSave()) event->accept();
-    else event->ignore();
+    if (maybeSave()) {
+        event->accept();
+    } else {
+        event->ignore();
+    }
 }

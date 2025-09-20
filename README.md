@@ -1,16 +1,21 @@
 # LuaAutoCompleteQt6
 
-A modern Qt6-based Lua editor with intelligent autocompletion, syntax highlighting, and symbol parsing.
+A modern Qt6-based Lua editor with intelligent autocompletion, syntax highlighting, symbol parsing, and module import system.
 
 ## Features
 
 - **Modern C++23 Implementation**: Uses latest C++ features including smart pointers, RAII, string_view, and constexpr
 - **Qt6 Interface**: Clean, responsive user interface built with Qt6 Widgets
-- **Intelligent Autocompletion**: Context-aware code completion for Lua keywords, built-in functions, and user-defined symbols
+- **Intelligent Autocompletion**: Context-aware code completion with support for:
+  - Lua keywords and built-in functions
+  - User-defined symbols (functions, variables, tables)
+  - Member access completion (`object.member`, `object:method`)
+  - Imported module functions via `require()`
+- **Module Import System**: Automatically parses `require()` statements and provides completion for external Lua files
 - **Syntax Highlighting**: Full Lua syntax highlighting with customizable color schemes
-- **Symbol Navigation**: Real-time symbol parsing and navigation panel
-- **Line Numbers**: Integrated line number display
-- **Error Detection**: Real-time syntax error detection and reporting
+- **Symbol Navigation**: Real-time symbol parsing with F12/Ctrl+F12 navigation
+- **Line Numbers**: Integrated line number display with current line highlighting
+- **Auto-Indentation**: Smart indentation for Lua code blocks
 
 ## Requirements
 
@@ -49,8 +54,6 @@ sudo pacman -S lua
 
 ### Quick Build
 
-The project includes a comprehensive build script that handles dependency checking and builds the project:
-
 ```bash
 git clone <repository-url>
 cd LuaAutoCompleteQt6
@@ -76,8 +79,6 @@ chmod +x build.sh
 
 ### Manual Build
 
-If you prefer to build manually:
-
 ```bash
 mkdir build
 cd build
@@ -87,8 +88,6 @@ make install
 ```
 
 ## Running
-
-After building, you can run the application using:
 
 ```bash
 # Using the generated run script
@@ -112,20 +111,108 @@ After building, you can run the application using:
 
 ### Editor Features
 
-- **Autocompletion**: Start typing and press Ctrl+E or continue typing to see suggestions
-- **Symbol Navigation**: View all functions, variables, and tables in the right panel
+- **Autocompletion**: Automatically triggered while typing, or manually with Ctrl+Space
+- **Symbol Navigation**: 
+  - **F12**: Find next reference of symbol under cursor
+  - **Ctrl+F12**: Go to definition of symbol under cursor
 - **Syntax Highlighting**: Automatic color coding for Lua syntax
 - **Line Numbers**: Visible line numbers with current line highlighting
-- **Auto-Indentation**: Automatic indentation for code blocks
+- **Auto-Indentation**: Automatic indentation for `function`, `if`, `for`, `while` blocks
 
-### Autocompletion Features
+### Advanced Autocompletion Features
 
-The editor provides intelligent autocompletion for:
+#### Context-Aware Completion
 
-- **Lua Keywords**: `function`, `local`, `if`, `then`, `else`, etc.
-- **Built-in Functions**: `print`, `type`, `pairs`, `ipairs`, etc.
-- **Standard Libraries**: `string.*`, `table.*`, `math.*` functions
-- **User-Defined Symbols**: Functions, variables, and tables defined in your code
+The editor provides intelligent autocompletion based on context:
+
+**Global Scope:**
+```lua
+-- Type: pr
+-- Suggests: print, pairs
+local mon
+-- Suggests: monster (if defined), math, string, table, etc.
+```
+
+**Member Access:**
+```lua
+local monster = {}
+monster.health = 100
+monster.name = "Goblin"
+
+-- Type: monster.
+-- Suggests: health, name
+```
+
+**Method Calls:**
+```lua
+local player = {}
+function player:attack() end
+function player:defend() end
+
+-- Type: player:
+-- Suggests: attack, defend, new, init, update, etc.
+```
+
+**Standard Libraries:**
+```lua
+-- Type: string.
+-- Suggests: find, gsub, len, sub, upper, lower, format, etc.
+
+-- Type: math.
+-- Suggests: abs, ceil, floor, max, min, random, sqrt, sin, cos, etc.
+```
+
+#### Module Import System
+
+The editor automatically detects and parses `require()` statements:
+
+**Setup Module Files:**
+
+`utils.lua`:
+```lua
+function calculateDistance(x1, y1, x2, y2)
+    return math.sqrt((x2-x1)^2 + (y2-y1)^2)
+end
+
+function clamp(value, min, max)
+    return math.max(min, math.min(max, value))
+end
+
+local M = {}
+M.helper = function() return "help" end
+return M
+```
+
+**Use in Main Script:**
+```lua
+local utils = require("utils")
+local helpers = require("game/helpers")
+
+-- Type: utils.
+-- Suggests: calculateDistance, clamp, helper
+
+utils.calculateDistance(0, 0, 10, 10)  -- Full completion support
+```
+
+**Module Search Paths:**
+The editor searches for modules in:
+- `.` (current directory)
+- `./modules`
+- `./lib`
+- `./scripts`
+
+**Supported Module Patterns:**
+- `function functionName()`
+- `local function functionName()`
+- `M.methodName = function()`
+- `return { exported = exported }`
+
+### Symbol Navigation
+
+- **Real-time Parsing**: Symbols are updated as you type
+- **Symbol Panel**: Right sidebar shows all functions, variables, and tables
+- **Cross-Reference**: Click on symbols to navigate to definition
+- **Multi-file Support**: Imported modules are included in symbol parsing
 
 ## Project Structure
 
@@ -138,13 +225,11 @@ LuaAutoCompleteQt6/
 ├── src/                   # Source code
 │   ├── main.cpp           # Application entry point
 │   ├── MainWindow.*       # Main application window
-│   ├── LuaEditor.*        # Lua text editor widget
-│   ├── LuaParser.*        # Lua code parser and analyzer
-│   ├── AutoCompleter.*    # Autocompletion engine
+│   ├── LuaEditor.*        # Lua text editor with completion
+│   ├── LuaParser.*        # Lua code parser and symbol analyzer
+│   ├── AutoCompleter.*    # Intelligent autocompletion engine
 │   └── LuaHighlighter.*   # Syntax highlighting
-├── resources/             # Application resources
-├── tests/                 # Unit tests
-├── docs/                  # Additional documentation
+├── modules/               # Place your Lua modules here
 ├── examples/              # Example Lua scripts
 ├── build/                 # Build output (generated)
 └── install/               # Installation directory (generated)
@@ -154,26 +239,76 @@ LuaAutoCompleteQt6/
 
 ### Architecture
 
-The application is built with a modular architecture:
+**Core Components:**
 
-1. **MainWindow**: Coordinates the overall application interface
-2. **LuaEditor**: Provides the text editing interface with line numbers
-3. **LuaParser**: Parses Lua code and extracts symbols
-4. **AutoCompleter**: Manages intelligent code completion
-5. **LuaHighlighter**: Handles syntax highlighting
+1. **MainWindow**: Main application interface and file management
+2. **LuaEditor**: Advanced text editor with:
+   - Line numbers and syntax highlighting
+   - Context-aware autocompletion
+   - Symbol navigation (F12/Ctrl+F12)
+   - Auto-indentation
+3. **LuaParser**: Lua code analysis and symbol extraction
+4. **AutoCompleter**: Qt-based completion popup management
+5. **LuaHighlighter**: Syntax highlighting for Lua language
+
+**Key Features:**
+
+- **Member Detection**: Automatically finds `object.member` and `object:method` patterns
+- **Import Resolution**: Parses `require()` statements and loads external modules
+- **Context Switching**: Different completion modes for global vs. member access
+- **Real-time Updates**: All parsing happens as you type
 
 ### Adding Features
 
-The modular design makes it easy to extend the application:
+**New Completion Sources:**
+```cpp
+// In LuaEditor::buildCompletionItems()
+if (parent == "myCustomLib") {
+    QStringList customMethods = {"method1", "method2"};
+    for (const QString& method : customMethods) {
+        members.insert(method);
+    }
+}
+```
 
-- **New completion sources**: Extend `AutoCompleter::getContextualCompletions()`
-- **Additional syntax**: Modify `LuaHighlighter::setupHighlightingRules()`
-- **Parser enhancements**: Extend `LuaParser` symbol extraction methods
+**Additional Module Patterns:**
+```cpp
+// In LuaEditor::parseModuleFunctions()
+QRegularExpression customPattern(R"(your_pattern_here)");
+// Add pattern matching logic
+```
+
+**New Navigation Features:**
+```cpp
+// In LuaEditor, add new shortcuts and connect to custom methods
+auto* customShortcut = new QShortcut(QKeySequence(Qt::Key_F3), this);
+connect(customShortcut, &QShortcut::activated, this, &LuaEditor::yourCustomMethod);
+```
 
 ## Testing
 
-Run the test suite:
+Create test files to verify autocompletion:
 
+**test_completion.lua:**
+```lua
+local utils = require("utils")  -- Put utils.lua in same directory
+
+local player = {}
+player.health = 100
+player.mana = 50
+
+function player:attack()
+    return "attacking"
+end
+
+-- Test completions:
+-- Type: player.     → should suggest: health, mana
+-- Type: player:     → should suggest: attack, new, init, etc.
+-- Type: utils.      → should suggest functions from utils.lua
+-- Type: string.     → should suggest: find, gsub, len, etc.
+```
+
+Run the test suite:
 ```bash
 cd build
 ctest --output-on-failure
@@ -183,7 +318,7 @@ ctest --output-on-failure
 
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes following the existing code style
+3. Follow existing code style (C++23, Qt6 patterns)
 4. Add tests for new functionality
 5. Ensure all tests pass
 6. Submit a pull request
@@ -196,33 +331,38 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ### Common Issues
 
+**Autocompletion not working:**
+- Check debug output in terminal for parsing errors
+- Verify module files exist in search paths
+- Ensure proper `require()` syntax
+
+**Module imports not found:**
+- Check file paths relative to current directory
+- Verify module files have `.lua` extension or no extension
+- Check module search paths: `.`, `./modules`, `./lib`, `./scripts`
+
 **Qt6 not found:**
 - Ensure Qt6 development packages are installed
-- Check that `qmake6` or `qmake` is in your PATH
-
-**Lua not found:**
-- Install Lua development headers
-- Verify with `pkg-config --exists lua5.4` or `pkg-config --exists lua`
+- Check that `qmake6` is in your PATH
 
 **Build fails:**
-- Ensure you have a C++23 compatible compiler (GCC 12+ or Clang 15+)
-- Check that all dependencies are properly installed
-- Try a clean build: `./build.sh clean && ./build.sh`
+- Ensure C++23 compatible compiler (GCC 12+ or Clang 15+)
+- Try clean build: `./build.sh clean && ./build.sh`
 
 **Application won't start:**
-- Check library dependencies: `ldd ./install/bin/LuaAutoCompleteQt6`
+- Check dependencies: `ldd ./install/bin/LuaAutoCompleteQt6`
 - Ensure Qt6 runtime libraries are installed
-- Try running from the installation directory
 
-### Getting Help
+### Debug Mode
 
-If you encounter issues:
+For troubleshooting completion issues, the editor provides debug output:
 
-1. Check the build output for specific error messages
-2. Verify all dependencies are installed correctly
-3. Try building in debug mode: `./build.sh debug`
-4. Check the [docs/](docs/) directory for additional information
+```bash
+./build.sh debug
+./install/bin/LuaAutoCompleteQt6
+# Watch terminal for completion debug messages
+```
 
 ## Acknowledgments
 
-Based on the original LuaAutoComplete project by cguebert, modernized for Qt6 and C++23.# LuaEditor
+Based on modern C++23 and Qt6 architecture, designed for professional Lua development with full IDE-like features.

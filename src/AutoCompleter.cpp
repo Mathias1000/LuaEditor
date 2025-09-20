@@ -56,3 +56,8 @@ void AutoCompleter::hidePopup()
         view->hide();
     }
 }
+
+void AutoCompleter::setWidget(QWidget* widget)
+{
+    m_completer->setWidget(widget);
+}

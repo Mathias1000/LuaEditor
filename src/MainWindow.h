@@ -33,13 +33,12 @@ protected:
 private slots:
     void newFile();
     void openFile();
-    void saveFile();
-    void saveFileAs();
+    bool saveFile();
+    bool saveFileAs();
     void about();
     void onTextChanged();
     void onCursorPositionChanged();
-    void onParsingCompleted();
-    void onParsingError(const QString& error);
+    void updateSymbolsList();
 
 private:
     void setupUi();
@@ -55,8 +54,8 @@ private:
     [[nodiscard]] QString strippedName(const QString& fullFileName) const;
 
     // Core components
+    std::shared_ptr<LuaParser> m_parser;
     std::unique_ptr<LuaEditor> m_editor;
-    std::unique_ptr<LuaParser> m_parser;
     std::unique_ptr<AutoCompleter> m_completer;
 
     QWidget* m_centralWidget{nullptr};
