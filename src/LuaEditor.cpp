@@ -15,6 +15,10 @@
 #include <QCompleter>
 #include <QTimer>
 #include <QDebug>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QTextStream>
 
 namespace {
     // einfache Identifier-RE
