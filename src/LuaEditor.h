@@ -57,15 +57,9 @@ private slots:
 
     // Navigation
     void findNextReference();  // F12: nächstes Vorkommen des Wortes unter dem Cursor
-    void goToDefinition();     // Ctrl+F12: zur Definition (function <Name>) springen
+    void goToDefinition();     // Ctrl+F12: zur Definition (function <name>) springen
     void updateFunctionIndex();// bei Textänderung: Funktions-Index aktualisieren
     void updateSymbols();      // bei Textänderung: Symbole (Variablen & Funktionen) aktualisieren
-
-
-    // import System
-
-    void parseImports();
-
 
 private:
     void setupEditor();
@@ -75,8 +69,10 @@ private:
     [[nodiscard]] QString detectChainUnderCursor(QString *trigger = nullptr) const;
 
     // Import system methods
+    void parseImports();       // Parse require() statements and load external files
     QStringList loadModuleFunctions(const QString& moduleName);
     QStringList parseModuleFunctions(const QString& content, const QString& moduleName);
+    QString detectCurrentClassContext() const;  // Find current class/object context for self completion
 
     // Parser (must be declared before m_lineNumberArea due to constructor order)
     std::shared_ptr<LuaParser> m_parser;

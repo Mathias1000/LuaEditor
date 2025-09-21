@@ -42,6 +42,7 @@ LuaEditor::LuaEditor(std::shared_ptr<LuaParser> parser, QWidget* parent)
             this, &LuaEditor::updateLineNumberArea);
     connect(this, &LuaEditor::cursorPositionChanged, this, [this] {
         highlightCurrentLine();
+        // Kein performCompletion() hier - nur bei Textänderungen
     });
 
     // Navigation Shortcuts
@@ -55,7 +56,7 @@ LuaEditor::LuaEditor(std::shared_ptr<LuaParser> parser, QWidget* parent)
     connect(this, &QPlainTextEdit::textChanged, this, [this] {
         updateFunctionIndex();
         updateSymbols();
-        parseImports(); // Parse imports when text changes
+        this->parseImports(); // Parse imports when text changes - explicit this->
     });
 
     updateLineNumberAreaWidth(0);
@@ -65,7 +66,7 @@ LuaEditor::LuaEditor(std::shared_ptr<LuaParser> parser, QWidget* parent)
 
     // Initialize search paths for modules
     m_searchPaths << "." << "./modules" << "./lib" << "./scripts";
-    parseImports();
+    this->parseImports(); // Explicit this-> call
 }
 
 void LuaEditor::setupEditor()
@@ -139,6 +140,23 @@ void LuaEditor::keyPressEvent(QKeyEvent *event)
         }
     }
 
+    // Navigation keys should not trigger completion
+    bool isNavigationKey = false;
+    switch (event->key()) {
+    case Qt::Key_Up:
+    case Qt::Key_Down:
+    case Qt::Key_Left:
+    case Qt::Key_Right:
+    case Qt::Key_Home:
+    case Qt::Key_End:
+    case Qt::Key_PageUp:
+    case Qt::Key_PageDown:
+        isNavigationKey = true;
+        break;
+    default:
+        break;
+    }
+
     // Tab → Spaces
     if (event->key() == Qt::Key_Tab) {
         // If completer is visible, let it handle tab
@@ -188,12 +206,15 @@ void LuaEditor::keyPressEvent(QKeyEvent *event)
     // Process the key press
     QPlainTextEdit::keyPressEvent(event);
 
-    // Trigger completion after processing the key
-    if (triggerCompletion) {
-        // Small delay to allow the character to be inserted first
-        QTimer::singleShot(10, this, &LuaEditor::performCompletion);
-    } else {
-        performCompletion();
+    // Only trigger completion for actual text input, not navigation
+    if (!isNavigationKey) {
+        if (triggerCompletion) {
+            // Small delay to allow the character to be inserted first
+            QTimer::singleShot(10, this, &LuaEditor::performCompletion);
+        } else if (!event->text().isEmpty() && event->text().at(0).isPrint()) {
+            // Only trigger for printable characters
+            performCompletion();
+        }
     }
 }
 
@@ -287,6 +308,47 @@ QStringList LuaEditor::loadModuleFunctions(const QString& moduleName)
 
     qDebug() << "Module not found:" << moduleName;
     return functions;
+}
+
+QString LuaEditor::detectCurrentClassContext() const
+{
+    // Find the current cursor position and work backwards to find the class context
+    QTextCursor cursor = textCursor();
+    int currentBlockNumber = cursor.blockNumber();
+
+    // Look backwards from current position to find function definition
+    for (int i = currentBlockNumber; i >= 0; --i) {
+        QTextBlock block = document()->findBlockByNumber(i);
+        if (!block.isValid()) continue;
+
+        const QString line = block.text().trimmed();
+
+        // Pattern: function ClassName:methodName or function ClassName.methodName
+        QRegularExpression functionRe(R"(\bfunction\s+([A-Za-z_][A-Za-z0-9_]*)[:.]([A-Za-z_][A-Za-z0-9_]*)\s*\()");
+        auto match = functionRe.match(line);
+        if (match.hasMatch()) {
+            const QString className = match.captured(1);
+            qDebug() << "Found class context:" << className << "at line" << i;
+            return className;
+        }
+
+        // Pattern: ClassName = {} or ClassName = Class() or similar
+        QRegularExpression classDefRe(R"(^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\{)");
+        auto classDef = classDefRe.match(line);
+        if (classDef.hasMatch()) {
+            const QString className = classDef.captured(1);
+            qDebug() << "Found class definition:" << className << "at line" << i;
+            return className;
+        }
+
+        // Stop searching if we hit another function that's not related
+        if (line.startsWith("function ") && !line.contains(':') && !line.contains('.')) {
+            break;
+        }
+    }
+
+    qDebug() << "No class context found";
+    return QString();
 }
 
 QStringList LuaEditor::parseModuleFunctions(const QString& content, const QString& moduleName)
@@ -772,6 +834,8 @@ QStringList LuaEditor::buildCompletionItems() const
             "and", "break", "do", "else", "elseif", "end", "false", "for",
             "function", "if", "in", "local", "nil", "not", "or", "repeat",
             "return", "then", "true", "until", "while", "goto",
+            // Special identifiers
+            "self",  // Important for method contexts
             // Standard-Libraries
             "table", "string", "math", "os", "io", "debug", "coroutine"
         };
@@ -817,6 +881,71 @@ QStringList LuaEditor::buildCompletionItems() const
         for (const QString& func : moduleFunctions) {
             members.insert(func);
             qDebug() << "Added imported function:" << func;
+        }
+    }
+
+    // Handle self. completion - find members of the current class/table
+    if (parent == "self" && !isMethodCall) {
+        qDebug() << "Looking for self members";
+
+        // Find the current function context to determine what "self" refers to
+        QString currentClass = detectCurrentClassContext();
+        qDebug() << "Current class context:" << currentClass;
+
+        if (!currentClass.isEmpty()) {
+            // Look for members of the current class
+            for (QTextBlock block = document()->firstBlock(); block.isValid(); block = block.next()) {
+                const QString line = block.text();
+
+                // Pattern 1: self.member = value (in method bodies)
+                QRegularExpression selfMemberRe(R"(\bself\.([A-Za-z_][A-Za-z0-9_]*)\s*=)");
+                auto selfIt = selfMemberRe.globalMatch(line);
+                while (selfIt.hasNext()) {
+                    const auto m = selfIt.next();
+                    const QString memberName = m.captured(1);
+                    members.insert(memberName);
+                    qDebug() << "Found self member:" << memberName;
+                }
+
+                // Pattern 2: currentClass.member = value (static assignments)
+                QRegularExpression classMemberRe(
+                    QRegularExpression::escape(currentClass) + R"(\.([A-Za-z_][A-Za-z0-9_]*)\s*=)"
+                );
+                auto classIt = classMemberRe.globalMatch(line);
+                while (classIt.hasNext()) {
+                    const auto m = classIt.next();
+                    const QString memberName = m.captured(1);
+                    members.insert(memberName);
+                    qDebug() << "Found class member:" << memberName;
+                }
+
+                // Pattern 3: function currentClass:methodName - these become self accessible
+                QRegularExpression classMethodRe(
+                    R"(\bfunction\s+)" + QRegularExpression::escape(currentClass) + R"(:([A-Za-z_][A-Za-z0-9_]*)\s*\()"
+                );
+                auto methodIt = classMethodRe.globalMatch(line);
+                while (methodIt.hasNext()) {
+                    const auto m = methodIt.next();
+                    const QString methodName = m.captured(1);
+                    // Methods are accessible as self:method, but we can also suggest them for self.
+                    members.insert(methodName);
+                    qDebug() << "Found class method:" << methodName;
+                }
+            }
+        } else {
+            // If we can't determine the class context, add common self members
+            QStringList commonSelfMembers = {
+                "x", "y", "z", "position", "rotation", "scale",
+                "width", "height", "size", "color", "alpha",
+                "name", "id", "type", "active", "visible",
+                "health", "mana", "level", "experience",
+                "velocity", "acceleration", "speed"
+            };
+
+            for (const QString& member : commonSelfMembers) {
+                members.insert(member);
+            }
+            qDebug() << "Added common self members";
         }
     }
 
