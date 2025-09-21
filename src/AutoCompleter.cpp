@@ -2,6 +2,7 @@
 
 #include <QAbstractItemView>
 #include <QScrollBar>
+#include <QListView>
 
 AutoCompleter::AutoCompleter(QObject* parent)
     : QObject(parent)
@@ -10,8 +11,24 @@ AutoCompleter::AutoCompleter(QObject* parent)
 {
     m_completer->setModel(m_model.get());
     m_completer->setCaseSensitivity(Qt::CaseInsensitive);
-    m_completer->setFilterMode(Qt::MatchStartsWith);
+    m_completer->setFilterMode(Qt::MatchStartsWith);  // Prefix matching
     m_completer->setCompletionMode(QCompleter::PopupCompletion);
+    m_completer->setMaxVisibleItems(12);  // Reasonable number of items
+
+    // Enable performance optimizations if the popup is a QListView
+    auto* popup = m_completer->popup();
+    if (auto* listView = qobject_cast<QListView*>(popup)) {
+        listView->setUniformItemSizes(true); // Performance improvement
+    }
+
+    // Connect to completion changes for reactive updates
+    connect(m_model.get(), &QAbstractItemModel::modelReset,
+            this, [this]() {
+        // Force update of completion when model changes
+        if (m_completer->popup()->isVisible()) {
+            m_completer->popup()->setCurrentIndex(m_completer->currentIndex());
+        }
+    });
 
     // Weiterreichen des aktivierten Textes
     connect(m_completer,
@@ -32,13 +49,18 @@ void AutoCompleter::updateCompleter(const QStringList& items)
     m_model->setStringList(sorted);
 }
 
+void AutoCompleter::setWidget(QWidget* widget)
+{
+    m_completer->setWidget(widget);
+}
+
 void AutoCompleter::showPopup(const QRect& rect)
 {
     if (!m_completer || !m_completer->widget()) {
         // kein Ziel-Widget → nichts zu tun
         return;
     }
-    // Popup anzeigen – Größe anhand Inhalt
+    // Popup anzeigen — Größe anhand Inhalt
     auto* view = m_completer->popup();
     if (!view) return;
 
@@ -55,9 +77,4 @@ void AutoCompleter::hidePopup()
     if (auto* view = m_completer ? m_completer->popup() : nullptr) {
         view->hide();
     }
-}
-
-void AutoCompleter::setWidget(QWidget* widget)
-{
-    m_completer->setWidget(widget);
 }

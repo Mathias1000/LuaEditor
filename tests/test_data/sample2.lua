@@ -92,6 +92,7 @@ function Player:gainExperience(exp)
     
     while self.experience >= exp_needed do
         self:levelUp()
+      
         exp_needed = self.level * 100
     end
 end

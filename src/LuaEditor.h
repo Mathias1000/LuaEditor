@@ -73,6 +73,8 @@ private:
     QStringList loadModuleFunctions(const QString& moduleName);
     QStringList parseModuleFunctions(const QString& content, const QString& moduleName);
     QString detectCurrentClassContext() const;  // Find current class/object context for self completion
+    QString extractChainBeforePosition(const QString& text, int position) const;  // Helper for chain detection
+    void invalidateCompletionCache();  // Clear completion cache when document changes
 
     // Parser (must be declared before m_lineNumberArea due to constructor order)
     std::shared_ptr<LuaParser> m_parser;
@@ -84,6 +86,11 @@ private:
     // Auto completion
     AutoCompleter* m_autoCompleter{nullptr};
 
+    // Performance optimization
+    QTimer* m_parseTimer{nullptr};           // Debounce timer for parsing
+    QTimer* m_completionTimer{nullptr};      // Debounce timer for completion
+    bool m_parsingPaused{false};             // Flag to pause expensive operations
+
     // Symbolindex (lokal im Dokument)
     QMap<QString, int> m_functionIndex;                 // Funktionsname -> Zeilennummer (blockNumber)
     QSet<QString> m_userFunctions;                      // im Dokument gefundene Funktionsnamen
@@ -93,6 +100,12 @@ private:
     QHash<QString, QStringList> m_importedModules;      // Modulname -> verfügbare Funktionen
     QStringList m_searchPaths;                          // Suchpfade für Module
     QSet<QString> m_loadedFiles;                        // Bereits geladene Dateien (verhindert Zyklen)
+
+    // Performance cache
+    mutable QStringList m_cachedGlobalItems;           // Cache for global completion items
+    mutable QHash<QString, QStringList> m_cachedMemberItems; // Cache for member completion
+    mutable bool m_globalCacheValid{false};            // Cache validity flag
+    mutable QSet<QString> m_memberCacheValid;          // Cache validity for specific parents
 
     QString m_lastSearchSymbol;     // Das Symbol, das aktuell "aktiv" ist
     int m_lastSearchIndex = -1;     // Index innerhalb der Referenzliste

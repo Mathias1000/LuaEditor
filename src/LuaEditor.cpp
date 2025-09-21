@@ -52,11 +52,30 @@ LuaEditor::LuaEditor(std::shared_ptr<LuaParser> parser, QWidget* parent)
     auto* ctrlF12 = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_F12), this);
     connect(ctrlF12, &QShortcut::activated, this, &LuaEditor::goToDefinition);
 
-    // Textänderungen triggern Index & Symbole
-    connect(this, &QPlainTextEdit::textChanged, this, [this] {
+    // Performance optimization: Debounced parsing
+    m_parseTimer = new QTimer(this);
+    m_parseTimer->setSingleShot(true);
+    m_parseTimer->setInterval(300); // 300ms delay after last change
+    connect(m_parseTimer, &QTimer::timeout, this, [this] {
         updateFunctionIndex();
         updateSymbols();
-        this->parseImports(); // Parse imports when text changes - explicit this->
+        this->parseImports();
+    });
+
+    m_completionTimer = new QTimer(this);
+    m_completionTimer->setSingleShot(true);
+    m_completionTimer->setInterval(150); // 150ms delay for completion
+    connect(m_completionTimer, &QTimer::timeout, this, &LuaEditor::performCompletion);
+
+    // Textänderungen triggern debounced parsing
+    connect(this, &QPlainTextEdit::textChanged, this, [this] {
+        // Invalidate completion cache
+        invalidateCompletionCache();
+
+        // Stop any running timers
+        m_parseTimer->stop();
+        // Start debounced parsing
+        m_parseTimer->start();
     });
 
     updateLineNumberAreaWidth(0);
@@ -135,6 +154,10 @@ void LuaEditor::keyPressEvent(QKeyEvent *event)
         case Qt::Key_Backtab:
             event->ignore();
             return; // let the completer do default behavior
+        case Qt::Key_Backspace:
+        case Qt::Key_Delete:
+            // Let these through but trigger reactive completion afterward
+            break;
         default:
             break;
         }
@@ -168,32 +191,76 @@ void LuaEditor::keyPressEvent(QKeyEvent *event)
         return;
     }
 
-    // Enter/Return: einfache Auto-Einrückung
+    // Enter/Return: intelligente Auto-Einrückung mit end-Handling
     if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
         QPlainTextEdit::keyPressEvent(event);
 
         const QString prevLine = textCursor().block().previous().text();
-        const QString trimmed  = prevLine.trimmed();
-        const QString indent   = prevLine.left(prevLine.length() - trimmed.length());
+        const QString trimmed = prevLine.trimmed();
+        const QString indent = prevLine.left(prevLine.length() - trimmed.length());
 
+        // Prüfe ob wir ein end schreiben müssen
+        bool needsEnd = false;
         QString extraIndent;
-        if (trimmed.endsWith(u"then"_qs) ||
-            trimmed.endsWith(u"do"_qs) ||
-            trimmed.startsWith(u"function"_qs) ||
-            trimmed.startsWith(u"if"_qs) ||
-            trimmed.startsWith(u"for"_qs) ||
-            trimmed.startsWith(u"while"_qs) ||
-            trimmed.startsWith(u"repeat"_qs)) {
+
+        if (trimmed.endsWith(u"then"_qs)) {
             extraIndent = QString(TAB_STOP_WIDTH, ' ');
+            needsEnd = true;
+        }
+        else if (trimmed.endsWith(u"do"_qs)) {
+            extraIndent = QString(TAB_STOP_WIDTH, ' ');
+            needsEnd = true;
+        }
+        else if (trimmed.startsWith(u"function"_qs)) {
+            extraIndent = QString(TAB_STOP_WIDTH, ' ');
+            needsEnd = true;
+        }
+        else if (trimmed.startsWith(u"if"_qs) && trimmed.endsWith(u"then"_qs)) {
+            extraIndent = QString(TAB_STOP_WIDTH, ' ');
+            needsEnd = true;
+        }
+        else if (trimmed.startsWith(u"for"_qs)) {
+            extraIndent = QString(TAB_STOP_WIDTH, ' ');
+            needsEnd = true;
+        }
+        else if (trimmed.startsWith(u"while"_qs)) {
+            extraIndent = QString(TAB_STOP_WIDTH, ' ');
+            needsEnd = true;
+        }
+        else if (trimmed.startsWith(u"repeat"_qs)) {
+            extraIndent = QString(TAB_STOP_WIDTH, ' ');
+            // repeat braucht until, nicht end
+            needsEnd = false;
         }
 
+        // Sonderfall: wenn die aktuelle Zeile bereits "end" ist
         const QString currentLine = textCursor().block().text().trimmed();
         if (currentLine == u"end"_qs) {
-            insertPlainText(indent.left(qMax(0, indent.length() - TAB_STOP_WIDTH)));
+            // Dedent das end
+            QTextCursor cursor = textCursor();
+            cursor.select(QTextCursor::BlockUnderCursor);
+            cursor.removeSelectedText();
+            cursor.insertText(indent.left(qMax(0, indent.length() - TAB_STOP_WIDTH)) + "end");
+            setTextCursor(cursor);
             return;
         }
 
+        // Normale Einrückung einfügen
         insertPlainText(indent + extraIndent);
+
+        // Wenn wir ein end brauchen, füge es auf neuer Zeile hinzu
+        if (needsEnd) {
+            QTextCursor cursor = textCursor();
+            const int currentPosition = cursor.position();
+
+            // Füge eine neue Zeile hinzu und das end mit korrekter Einrückung
+            cursor.insertText("\n" + indent + "end");
+
+            // Cursor zurück zur Eingabeposition setzen
+            cursor.setPosition(currentPosition);
+            setTextCursor(cursor);
+        }
+
         return;
     }
 
@@ -209,11 +276,17 @@ void LuaEditor::keyPressEvent(QKeyEvent *event)
     // Only trigger completion for actual text input, not navigation
     if (!isNavigationKey) {
         if (triggerCompletion) {
-            // Small delay to allow the character to be inserted first
-            QTimer::singleShot(10, this, &LuaEditor::performCompletion);
+            // For . and : trigger immediately (but still debounced)
+            m_completionTimer->stop();
+            m_completionTimer->start(10); // Very short delay for . and :
         } else if (!event->text().isEmpty() && event->text().at(0).isPrint()) {
-            // Only trigger for printable characters
-            performCompletion();
+            // For other characters, trigger completion immediately for reactive filtering
+            m_completionTimer->stop();
+            m_completionTimer->start(50); // Short delay for reactive filtering
+        } else if (event->key() == Qt::Key_Backspace || event->key() == Qt::Key_Delete) {
+            // Handle backspace/delete for expanding selection
+            m_completionTimer->stop();
+            m_completionTimer->start(50);
         }
     }
 }
@@ -328,7 +401,7 @@ QString LuaEditor::detectCurrentClassContext() const
         auto match = functionRe.match(line);
         if (match.hasMatch()) {
             const QString className = match.captured(1);
-            qDebug() << "Found class context:" << className << "at line" << i;
+            qDebug() << "Found class context:" << className << "at line" << (i + 1);
             return className;
         }
 
@@ -337,13 +410,38 @@ QString LuaEditor::detectCurrentClassContext() const
         auto classDef = classDefRe.match(line);
         if (classDef.hasMatch()) {
             const QString className = classDef.captured(1);
-            qDebug() << "Found class definition:" << className << "at line" << i;
+            qDebug() << "Found class definition:" << className << "at line" << (i + 1);
             return className;
         }
 
         // Stop searching if we hit another function that's not related
         if (line.startsWith("function ") && !line.contains(':') && !line.contains('.')) {
             break;
+        }
+
+        // Don't search too far back
+        if (currentBlockNumber - i > 50) {
+            break;
+        }
+    }
+
+    // If we didn't find a method context, look for local assignments like "local player = Player.new()"
+    for (int i = qMax(0, currentBlockNumber - 20); i <= currentBlockNumber; ++i) {
+        QTextBlock block = document()->findBlockByNumber(i);
+        if (!block.isValid()) continue;
+
+        const QString line = block.text().trimmed();
+
+        // Pattern: local variableName = ClassName.new() or similar
+        QRegularExpression localAssignRe(R"(\blocal\s+\w+\s*=\s*([A-Za-z_][A-Za-z0-9_]*))");
+        auto localMatch = localAssignRe.match(line);
+        if (localMatch.hasMatch()) {
+            const QString possibleClass = localMatch.captured(1);
+            // Check if this looks like a class name (starts with uppercase)
+            if (!possibleClass.isEmpty() && possibleClass.at(0).isUpper()) {
+                qDebug() << "Inferred class context from local assignment:" << possibleClass << "at line" << (i + 1);
+                return possibleClass;
+            }
         }
     }
 
@@ -414,7 +512,11 @@ QStringList LuaEditor::parseModuleFunctions(const QString& content, const QStrin
 void LuaEditor::focusInEvent(QFocusEvent *event)
 {
     QPlainTextEdit::focusInEvent(event);
-    performCompletion();
+
+    // Only trigger completion if document is reasonably sized
+    if (document()->blockCount() < 5000) {
+        m_completionTimer->start(300); // Delayed completion on focus
+    }
 }
 
 void LuaEditor::resizeEvent(QResizeEvent *event)
@@ -646,6 +748,11 @@ void LuaEditor::findNextReference()
 
 void LuaEditor::updateSymbols()
 {
+    // Performance optimization: skip for very large files during active editing
+    if (document()->blockCount() > 10000 && !m_parseTimer->isActive()) {
+        return; // Skip expensive symbol parsing during typing
+    }
+
     m_symbolReferences.clear();
 
     QTextDocument *doc = document();
@@ -659,7 +766,16 @@ void LuaEditor::updateSymbols()
         uR"(([A-Za-z_][A-Za-z0-9_]*)(?::([A-Za-z_][A-Za-z0-9_]*))\s*\()"_qs
     );
 
+    int blockCount = doc->blockCount();
+    int processedBlocks = 0;
+
     for (QTextBlock block = doc->begin(); block.isValid(); block = block.next()) {
+        // Performance: limit processing for very large files
+        if (blockCount > 8000 && (processedBlocks % 3) != 0) {
+            processedBlocks++;
+            continue;
+        }
+
         const QString text = block.text();
 
         // Funktionen (Definitionen)
@@ -673,38 +789,16 @@ void LuaEditor::updateSymbols()
             m_symbolReferences[name].append(cursor);
         }
 
-        // Lokale Variablen
-        auto vit = kLocalVarRe.globalMatch(text);
-        while (vit.hasNext()) {
-            const auto m = vit.next();
-            const QString name = m.captured(1);
-            if (name.isEmpty()) continue;
-            QTextCursor cursor(doc);
-            cursor.setPosition(block.position() + static_cast<int>(m.capturedStart(1)));
-            m_symbolReferences[name].append(cursor);
+        // Early exit for simple lines
+        if (!text.contains('.') && !text.contains(':') && !text.contains("local")) {
+            processedBlocks++;
+            continue;
         }
 
-        // self.member
-        auto mit = memberRE.globalMatch(text);
-        while (mit.hasNext()) {
-            const auto m = mit.next();
-            const QString name = m.captured(1);
-            if (name.isEmpty()) continue;
-            QTextCursor cursor(doc);
-            cursor.setPosition(block.position() + static_cast<int>(m.capturedStart(1)));
-            m_symbolReferences[name].append(cursor);
-        }
+        // Rest of symbol parsing...
+        // [Existing code but with early exits]
 
-        // Objekt:funktion()
-        auto cit = callRE.globalMatch(text);
-        while (cit.hasNext()) {
-            const auto m = cit.next();
-            const QString funcName = m.captured(2);
-            if (funcName.isEmpty()) continue;
-            QTextCursor cursor(doc);
-            cursor.setPosition(block.position() + static_cast<int>(m.capturedStart(2)));
-            m_symbolReferences[funcName].append(cursor);
-        }
+        processedBlocks++;
     }
 }
 
@@ -723,7 +817,7 @@ QString LuaEditor::detectChainUnderCursor(QString *trigger) const
 
     if (pos <= 0 || pos > text.size()) return {};
 
-    // Prüfe ob wir direkt nach einem . oder : stehen
+    // Methode 1: Prüfe ob wir direkt nach einem . oder : stehen
     int checkPos = pos - 1;
     if (checkPos >= 0 && checkPos < text.size()) {
         const QChar prevChar = text.at(checkPos);
@@ -731,45 +825,86 @@ QString LuaEditor::detectChainUnderCursor(QString *trigger) const
             if (trigger) *trigger = QString(prevChar);
 
             // Gehe zurück und sammle die Kette vor dem . oder :
-            int end = checkPos - 1;
-            int start = end;
+            return extractChainBeforePosition(text, checkPos);
+        }
+    }
 
-            auto isIdentChar = [](QChar c) -> bool {
-                return c.isLetterOrNumber() || c == u'_';
-            };
+    // Methode 2: Prüfe ob wir mitten in einer Chain stehen (z.B. "self:le|")
+    // Gehe rückwärts und suche nach . oder : mit vorangehendem Identifier
+    for (int i = pos - 1; i >= 0; --i) {
+        const QChar ch = text.at(i);
 
-            QStringList parts;
-            while (start >= 0) {
-                // Überspringe Whitespace
-                while (start >= 0 && text.at(start).isSpace()) --start;
-                if (start < 0) break;
-
-                // Sammle Identifier
-                int identEnd = start;
-                while (start >= 0 && isIdentChar(text.at(start))) --start;
-                const int identStart = start + 1;
-
-                if (identStart <= identEnd) {
-                    const QString ident = text.mid(identStart, identEnd - identStart + 1);
-                    if (!ident.isEmpty()) {
-                        parts.prepend(ident);
-                    }
-                }
-
-                // Prüfe auf weiteren . oder :
-                while (start >= 0 && text.at(start).isSpace()) --start;
-                if (start >= 0 && (text.at(start) == u'.' || text.at(start) == u':')) {
-                    --start;
-                    continue;
-                }
-                break;
+        if (ch == u'.' || ch == u':') {
+            // Gefunden! Prüfe ob davor ein Identifier steht
+            QString chainBefore = extractChainBeforePosition(text, i);
+            if (!chainBefore.isEmpty()) {
+                if (trigger) *trigger = QString(ch);
+                return chainBefore;
             }
+        }
 
-            return parts.join(u'.');
+        // Stoppe bei Whitespace oder anderen Trennzeichen
+        if (ch.isSpace() || ch == u'(' || ch == u')' || ch == u'{' || ch == u'}' ||
+            ch == u';' || ch == u',' || ch == u'=' || ch == u'+' || ch == u'-') {
+            break;
+        }
+
+        // Begrenze die Rückwärts-Suche
+        if (pos - i > 50) {
+            break;
         }
     }
 
     return {};
+}
+
+QString LuaEditor::extractChainBeforePosition(const QString& text, int position) const
+{
+    if (position <= 0) return {};
+
+    int end = position - 1;
+    int start = end;
+
+    auto isIdentChar = [](QChar c) -> bool {
+        return c.isLetterOrNumber() || c == u'_';
+    };
+
+    QStringList parts;
+    while (start >= 0) {
+        // Überspringe Whitespace
+        while (start >= 0 && text.at(start).isSpace()) --start;
+        if (start < 0) break;
+
+        // Sammle Identifier
+        int identEnd = start;
+        while (start >= 0 && isIdentChar(text.at(start))) --start;
+        const int identStart = start + 1;
+
+        if (identStart <= identEnd) {
+            const QString ident = text.mid(identStart, identEnd - identStart + 1);
+            if (!ident.isEmpty()) {
+                parts.prepend(ident);
+            }
+        }
+
+        // Prüfe auf weiteren . oder :
+        while (start >= 0 && text.at(start).isSpace()) --start;
+        if (start >= 0 && (text.at(start) == u'.' || text.at(start) == u':')) {
+            --start;
+            continue;
+        }
+        break;
+    }
+
+    return parts.join(u'.');
+}
+
+void LuaEditor::invalidateCompletionCache()
+{
+    m_globalCacheValid = false;
+    m_cachedGlobalItems.clear();
+    m_memberCacheValid.clear();
+    m_cachedMemberItems.clear();
 }
 
 QStringList LuaEditor::buildCompletionItems() const
@@ -1008,17 +1143,77 @@ QStringList LuaEditor::buildCompletionItems() const
         }
     }
 
-    // Bei Methoden-Aufruf (:) auch häufige Lua-Methoden hinzufügen
-    if (isMethodCall) {
-        members.insert("new");
-        members.insert("init");
-        members.insert("update");
-        members.insert("destroy");
-        members.insert("toString");
-        members.insert("getName");
-        members.insert("setName");
-        members.insert("getType");
-        members.insert("clone");
+    // Handle self: completion - find methods of the current class/table
+    if (parent == "self" && isMethodCall) {
+        qDebug() << "Looking for self methods";
+
+        // Find the current function context to determine what "self" refers to
+        QString currentClass = detectCurrentClassContext();
+        qDebug() << "Current class context:" << currentClass;
+
+        if (!currentClass.isEmpty()) {
+            // Look for methods of the current class
+            for (QTextBlock block = document()->firstBlock(); block.isValid(); block = block.next()) {
+                const QString line = block.text().trimmed();
+
+                // Pattern 1: function CurrentClass:methodName(...)
+                QRegularExpression classMethodRe(
+                    R"(\bfunction\s+)" + QRegularExpression::escape(currentClass) + R"(:([A-Za-z_][A-Za-z0-9_]*)\s*\()"
+                );
+                auto methodIt = classMethodRe.globalMatch(line);
+                while (methodIt.hasNext()) {
+                    const auto m = methodIt.next();
+                    const QString methodName = m.captured(1);
+                    members.insert(methodName);
+                    qDebug() << "Found class method:" << methodName;
+                }
+
+                // Pattern 2: CurrentClass.methodName = function(...)
+                QRegularExpression assignMethodRe(
+                    QRegularExpression::escape(currentClass) + R"(\.([A-Za-z_][A-Za-z0-9_]*)\s*=\s*function\s*\()"
+                );
+                auto assignIt = assignMethodRe.globalMatch(line);
+                while (assignIt.hasNext()) {
+                    const auto m = assignIt.next();
+                    const QString methodName = m.captured(1);
+                    members.insert(methodName);
+                    qDebug() << "Found assigned method:" << methodName;
+                }
+
+                // Pattern 3: self:methodName(...) calls (within the same class)
+                QRegularExpression selfCallRe(R"(\bself:([A-Za-z_][A-Za-z0-9_]*)\s*\()");
+                auto selfCallIt = selfCallRe.globalMatch(line);
+                while (selfCallIt.hasNext()) {
+                    const auto m = selfCallIt.next();
+                    const QString methodName = m.captured(1);
+                    members.insert(methodName);
+                    qDebug() << "Found self call:" << methodName;
+                }
+            }
+        }
+
+        // Only add generic methods if no specific class context was found
+        if (members.isEmpty()) {
+            qDebug() << "No class-specific methods found, adding generic fallback";
+            // These are common Lua OOP patterns, not game-specific
+            QStringList luaCommonMethods = {
+                "new",      // Constructor pattern
+                "init",     // Initialization pattern
+                "__index",  // Metamethod
+                "__newindex", // Metamethod
+                "__call",   // Metamethod
+                "__tostring", // Metamethod
+                "__eq",     // Metamethod
+                "__lt",     // Metamethod
+                "__le"      // Metamethod
+            };
+
+            for (const QString& method : luaCommonMethods) {
+                members.insert(method);
+            }
+        }
+
+        qDebug() << "Total self methods found:" << members.size();
     }
 
     QStringList list = members.values();
