@@ -45,6 +45,7 @@ protected:
     void focusInEvent(QFocusEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
 
 private slots:
     // Autocomplete
@@ -75,6 +76,7 @@ private:
     QString detectCurrentClassContext() const;  // Find current class/object context for self completion
     QString extractChainBeforePosition(const QString& text, int position) const;  // Helper for chain detection
     void invalidateCompletionCache();  // Clear completion cache when document changes
+    QStringList smartSortCompletionItems(const QStringList& items, const QString& prefix) const;  // Smart sorting based on prefix
 
     // Parser (must be declared before m_lineNumberArea due to constructor order)
     std::shared_ptr<LuaParser> m_parser;

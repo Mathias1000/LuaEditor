@@ -31,6 +31,9 @@ function GameObject:new(name, x, y)
     return obj
 end
 
+
+
+
 function GameObject:move(dx, dy)
     local new_x = math.max(0, math.min(WORLD_SIZE.x, self.position.x + dx))
     local new_y = math.max(0, math.min(WORLD_SIZE.y, self.position.y + dy))

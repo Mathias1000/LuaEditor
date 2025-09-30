@@ -11,24 +11,22 @@ AutoCompleter::AutoCompleter(QObject* parent)
 {
     m_completer->setModel(m_model.get());
     m_completer->setCaseSensitivity(Qt::CaseInsensitive);
-    m_completer->setFilterMode(Qt::MatchStartsWith);  // Prefix matching
+
+    // WICHTIG: Verwende MatchContains statt MatchStartsWith
+    // Das gibt uns mehr Kontrolle über das Filtering
+    m_completer->setFilterMode(Qt::MatchContains);
+
     m_completer->setCompletionMode(QCompleter::PopupCompletion);
-    m_completer->setMaxVisibleItems(12);  // Reasonable number of items
+    m_completer->setMaxVisibleItems(12);
+
+    // KEINE interne Sortierung - wir machen das selbst
+    m_completer->setModelSorting(QCompleter::UnsortedModel);
 
     // Enable performance optimizations if the popup is a QListView
     auto* popup = m_completer->popup();
     if (auto* listView = qobject_cast<QListView*>(popup)) {
-        listView->setUniformItemSizes(true); // Performance improvement
+        listView->setUniformItemSizes(true);
     }
-
-    // Connect to completion changes for reactive updates
-    connect(m_model.get(), &QAbstractItemModel::modelReset,
-            this, [this]() {
-        // Force update of completion when model changes
-        if (m_completer->popup()->isVisible()) {
-            m_completer->popup()->setCurrentIndex(m_completer->currentIndex());
-        }
-    });
 
     // Weiterreichen des aktivierten Textes
     connect(m_completer,

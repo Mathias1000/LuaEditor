@@ -5,6 +5,7 @@
 #include <QFileInfo>
 #include <QTextStream>
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -38,20 +39,144 @@ void MainWindow::setupUi()
     m_centralWidget = new QWidget(this);
     setCentralWidget(m_centralWidget);
 
-    m_mainSplitter = new QSplitter(Qt::Horizontal, this);
-    m_mainSplitter->addWidget(m_editor.get());
+    auto* mainLayout = new QVBoxLayout(m_centralWidget);
+    mainLayout->setContentsMargins(0, 0, 0, 0);
+    mainLayout->setSpacing(0);
 
-    m_symbolsList = new QListWidget(this);
-    m_symbolsList->setMaximumWidth(300);
-    m_symbolsList->setMinimumWidth(200);
-    m_mainSplitter->addWidget(m_symbolsList);
 
-    m_mainSplitter->setStretchFactor(0, 3);
-    m_mainSplitter->setStretchFactor(1, 1);
+    // Create symbol panel (horizontal layout below toolbar)
+    m_symbolPanel = new QWidget(this);
+    m_symbolPanel->setMaximumHeight(50);
+    auto* symbolLayout = new QHBoxLayout(m_symbolPanel);
+    symbolLayout->setContentsMargins(5, 5, 5, 5);
+    symbolLayout->setSpacing(5);
 
-    auto* layout = new QVBoxLayout(m_centralWidget);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(m_mainSplitter);
+    // LoadSymbol button (green, on the left)
+    m_loadSymbolButton = new QPushButton("LoadSymbol", this);
+    m_loadSymbolButton->setMinimumHeight(35);
+    m_loadSymbolButton->setMaximumWidth(80);
+    m_loadSymbolButton->setStyleSheet(
+        "QPushButton {"
+        "   background-color: #2ecc71;"
+        "   color: white;"
+        "   border: none;"
+        "   border-radius: 5px;"
+        "   padding: 8px 16px;"
+        "   font-weight: bold;"
+        "   font-size: 11pt;"
+        "}"
+        "QPushButton:hover {"
+        "   background-color: #27ae60;"
+        "}"
+        "QPushButton:pressed {"
+        "   background-color: #229954;"
+        "}"
+    );
+    symbolLayout->addWidget(m_loadSymbolButton);
+
+    // Globals List
+    m_globalsList = new QListWidget(this);
+    m_globalsList->setMaximumHeight(80);
+    m_globalsList->setStyleSheet(
+        "QListWidget {"
+        "   background-color: rgba(240, 240, 240, 220);"
+        "   border: 1px solid rgba(100, 100, 100, 180);"
+        "   border-radius: 5px;"
+        "   padding: 5px;"
+        "   font-size: 10pt;"
+        "}"
+        "QListWidget::item {"
+        "   padding: 3px;"
+        "   color: #000000;"
+        "}"
+        "QListWidget::item:hover {"
+        "   background-color: rgba(100, 150, 200, 120);"
+        "}"
+        "QListWidget::item:selected {"
+        "   background-color: rgba(50, 100, 200, 180);"
+        "   color: white;"
+        "}"
+    );
+
+    // Functions List
+    m_functionsList = new QListWidget(this);
+    m_functionsList->setMaximumHeight(150);
+    m_functionsList->setStyleSheet(
+        "QListWidget {"
+        "   background-color: rgba(255, 250, 240, 220);"
+        "   border: 1px solid rgba(100, 100, 100, 180);"
+        "   border-radius: 5px;"
+        "   padding: 5px;"
+        "   font-size: 10pt;"
+        "}"
+        "QListWidget::item {"
+        "   padding: 3px;"
+        "   color: #000000;"
+        "}"
+        "QListWidget::item:hover {"
+        "   background-color: rgba(200, 150, 100, 120);"
+        "}"
+        "QListWidget::item:selected {"
+        "   background-color: rgba(200, 100, 50, 180);"
+        "   color: white;"
+        "}"
+    );
+
+    // Tables List
+    m_tablesList = new QListWidget(this);
+    m_tablesList->setMaximumHeight(80);
+    m_tablesList->setStyleSheet(
+        "QListWidget {"
+        "   background-color: rgba(240, 255, 240, 220);"
+        "   border: 1px solid rgba(100, 100, 100, 180);"
+        "   border-radius: 5px;"
+        "   padding: 5px;"
+        "   font-size: 10pt;"
+        "}"
+        "QListWidget::item {"
+        "   padding: 3px;"
+        "   color: #000000;"
+        "}"
+        "QListWidget::item:hover {"
+        "   background-color: rgba(100, 200, 100, 120);"
+        "}"
+        "QListWidget::item:selected {"
+        "   background-color: rgba(50, 150, 50, 180);"
+        "   color: white;"
+        "}"
+    );
+
+    // Add titles/headers as first items
+    auto* globalsHeader = new QListWidgetItem("📋 Globals");
+    globalsHeader->setFlags(Qt::NoItemFlags);
+    globalsHeader->setForeground(QBrush(QColor(50, 50, 50)));
+    QFont headerFont = globalsHeader->font();
+    headerFont.setBold(true);
+    globalsHeader->setFont(headerFont);
+    m_globalsList->addItem(globalsHeader);
+
+    auto* functionsHeader = new QListWidgetItem("⚙️ Functions");
+    functionsHeader->setFlags(Qt::NoItemFlags);
+    functionsHeader->setForeground(QBrush(QColor(50, 50, 50)));
+    functionsHeader->setFont(headerFont);
+    m_functionsList->addItem(functionsHeader);
+
+    auto* tablesHeader = new QListWidgetItem("📦 Tables");
+    tablesHeader->setFlags(Qt::NoItemFlags);
+    tablesHeader->setForeground(QBrush(QColor(50, 50, 50)));
+    tablesHeader->setFont(headerFont);
+    m_tablesList->addItem(tablesHeader);
+
+    // Add lists to layout (equal width distribution)
+    symbolLayout->addWidget(m_globalsList, 1);
+    symbolLayout->addWidget(m_functionsList, 1);
+    symbolLayout->addWidget(m_tablesList, 1);
+
+    // Add symbol panel to main layout
+    mainLayout->addWidget(m_symbolPanel);
+
+    // Add editor below
+    mainLayout->addWidget(m_editor.get());
 }
 
 void MainWindow::setupMenuBar()
@@ -62,6 +187,9 @@ void MainWindow::setupMenuBar()
     m_newAction->setShortcuts(QKeySequence::New);
     fileMenu->addAction(m_newAction);
 
+
+
+
     m_openAction = new QAction(tr("&Open..."), this);
     m_openAction->setShortcuts(QKeySequence::Open);
     fileMenu->addAction(m_openAction);
@@ -71,6 +199,7 @@ void MainWindow::setupMenuBar()
     m_saveAction = new QAction(tr("&Save"), this);
     m_saveAction->setShortcuts(QKeySequence::Save);
     fileMenu->addAction(m_saveAction);
+
 
     m_saveAsAction = new QAction(tr("Save &As..."), this);
     m_saveAsAction->setShortcuts(QKeySequence::SaveAs);
@@ -90,9 +219,15 @@ void MainWindow::setupMenuBar()
 void MainWindow::setupToolBar()
 {
     auto* fileToolBar = addToolBar(tr("File"));
+
+
+
     fileToolBar->addAction(m_newAction);
     fileToolBar->addAction(m_openAction);
     fileToolBar->addAction(m_saveAction);
+
+
+
 }
 
 void MainWindow::setupStatusBar()
@@ -121,6 +256,14 @@ void MainWindow::createConnections()
 
     connect(m_editor.get(), &LuaEditor::textChanged, this, &MainWindow::onTextChanged);
     connect(m_editor.get(), &LuaEditor::cursorPositionChanged, this, &MainWindow::onCursorPositionChanged);
+
+    // Connect list item clicks
+    connect(m_globalsList, &QListWidget::itemClicked, this, &MainWindow::onGlobalsItemClicked);
+    connect(m_functionsList, &QListWidget::itemClicked, this, &MainWindow::onFunctionsItemClicked);
+    connect(m_tablesList, &QListWidget::itemClicked, this, &MainWindow::onTablesItemClicked);
+
+    // Connect LoadSymbol button
+    connect(m_loadSymbolButton, &QPushButton::clicked, this, &MainWindow::onLoadSymbolClicked);
 }
 
 // === File Handling ===
@@ -230,16 +373,122 @@ void MainWindow::onCursorPositionChanged()
 
 void MainWindow::updateSymbolsList()
 {
-    m_symbolsList->clear();
+    // Clear lists (except headers)
+    while (m_globalsList->count() > 1) {
+        delete m_globalsList->takeItem(1);
+    }
+    while (m_functionsList->count() > 1) {
+        delete m_functionsList->takeItem(1);
+    }
+    while (m_tablesList->count() > 1) {
+        delete m_tablesList->takeItem(1);
+    }
 
     // Get globals from parser
     const QStringList globals = m_parser->getGlobals();
+
+    // Separate into different categories
     for (const QString& symbol : globals) {
-        m_symbolsList->addItem("🌐 " + symbol); // Global symbol
+        auto def = m_parser->findDefinition(symbol);
+        if (def.has_value()) {
+            QString displayText = symbol;
+
+            switch (def->kind) {
+                case SymbolKind::Function:
+                    displayText += " " + def->signature;
+                    m_functionsList->addItem(displayText);
+                    break;
+                case SymbolKind::Method:
+                    displayText += " " + def->signature;
+                    m_functionsList->addItem(displayText);
+                    break;
+                case SymbolKind::Table:
+                    m_tablesList->addItem(displayText);
+                    break;
+                case SymbolKind::Variable:
+                case SymbolKind::Field:
+                    m_globalsList->addItem(displayText);
+                    break;
+                default:
+                    m_globalsList->addItem(displayText);
+                    break;
+            }
+        } else {
+            m_globalsList->addItem(symbol);
+        }
+    }
+}
+
+void MainWindow::onGlobalsItemClicked(QListWidgetItem* item)
+{
+    if (!item || item->flags() == Qt::NoItemFlags) return; // Skip header
+
+    QString symbolText = item->text();
+    symbolText = symbolText.split(' ').first(); // Get just the symbol name
+
+    auto def = m_parser->findDefinition(symbolText);
+    if (def.has_value()) {
+        QTextBlock block = m_editor->document()->findBlockByNumber(def->pos.line - 1);
+        if (block.isValid()) {
+            QTextCursor cursor(block);
+            m_editor->setTextCursor(cursor);
+            m_editor->centerCursor();
+            m_editor->setFocus();
+        }
+    }
+}
+
+void MainWindow::onFunctionsItemClicked(QListWidgetItem* item)
+{
+    if (!item || item->flags() == Qt::NoItemFlags) return; // Skip header
+
+    QString symbolText = item->text();
+    symbolText = symbolText.split(' ').first(); // Get just the function name
+
+    auto def = m_parser->findDefinition(symbolText);
+    if (def.has_value()) {
+        QTextBlock block = m_editor->document()->findBlockByNumber(def->pos.line - 1);
+        if (block.isValid()) {
+            QTextCursor cursor(block);
+            m_editor->setTextCursor(cursor);
+            m_editor->centerCursor();
+            m_editor->setFocus();
+        }
+    }
+}
+
+void MainWindow::onTablesItemClicked(QListWidgetItem* item)
+{
+    if (!item || item->flags() == Qt::NoItemFlags) return; // Skip header
+
+    QString symbolText = item->text();
+    symbolText = symbolText.split(' ').first(); // Get just the table name
+
+    auto def = m_parser->findDefinition(symbolText);
+    if (def.has_value()) {
+        QTextBlock block = m_editor->document()->findBlockByNumber(def->pos.line - 1);
+        if (block.isValid()) {
+            QTextCursor cursor(block);
+            m_editor->setTextCursor(cursor);
+            m_editor->centerCursor();
+            m_editor->setFocus();
+        }
+    }
+}
+
+void MainWindow::onLoadSymbolClicked()
+{
+    // Trigger a full re-parse and update of all symbols
+    if (!m_currentFile.isEmpty()) {
+        m_parser->resetProject();
+        m_parser->parseFile(m_editor->toPlainText(), m_currentFile);
+    } else {
+        m_parser->resetProject();
+        m_parser->parseFile(m_editor->toPlainText(), "untitled.lua");
     }
 
-    // You could also add members if you want to show all symbols
-    // For now, just showing globals for simplicity
+    updateSymbolsList();
+    m_statusLabel->setText(tr("Symbols reloaded"));
 }
 
 // === Window helpers ===

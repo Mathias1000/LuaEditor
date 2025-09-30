@@ -11,6 +11,7 @@
 #include <QListWidget>
 #include <QLabel>
 #include <QProgressBar>
+#include <QPushButton>
 #include <memory>
 
 #include "LuaEditor.h"
@@ -39,6 +40,10 @@ private slots:
     void onTextChanged();
     void onCursorPositionChanged();
     void updateSymbolsList();
+    void onGlobalsItemClicked(QListWidgetItem* item);
+    void onFunctionsItemClicked(QListWidgetItem* item);
+    void onTablesItemClicked(QListWidgetItem* item);
+    void onLoadSymbolClicked();
 
 private:
     void setupUi();
@@ -59,8 +64,15 @@ private:
     std::unique_ptr<AutoCompleter> m_completer;
 
     QWidget* m_centralWidget{nullptr};
-    QSplitter* m_mainSplitter{nullptr};
-    QListWidget* m_symbolsList{nullptr};
+    QWidget* m_symbolPanel{nullptr};  // Panel containing button and lists
+
+    // LoadSymbol button
+    QPushButton* m_loadSymbolButton{nullptr};
+
+    // Three symbol list boxes
+    QListWidget* m_globalsList{nullptr};      // Global variables/functions
+    QListWidget* m_functionsList{nullptr};    // Function definitions
+    QListWidget* m_tablesList{nullptr};       // Tables/modules
 
     // Actions
     QAction* m_newAction{nullptr};

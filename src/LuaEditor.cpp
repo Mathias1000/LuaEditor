@@ -19,6 +19,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QTextStream>
+#include <QMouseEvent>
 
 namespace {
     // einfache Identifier-RE
@@ -513,10 +514,22 @@ void LuaEditor::focusInEvent(QFocusEvent *event)
 {
     QPlainTextEdit::focusInEvent(event);
 
-    // Only trigger completion if document is reasonably sized
+    // Only trigger completion if document is reasonably sized AND no popup is visible
     if (document()->blockCount() < 5000) {
-        m_completionTimer->start(300); // Delayed completion on focus
+        if (!m_autoCompleter || !m_autoCompleter->completer()->popup()->isVisible()) {
+            m_completionTimer->start(300); // Delayed completion on focus
+        }
     }
+}
+
+void LuaEditor::mousePressEvent(QMouseEvent *event)
+{
+    // Hide completion popup on mouse press to allow normal interaction
+    if (m_autoCompleter && m_autoCompleter->completer()->popup()->isVisible()) {
+        m_autoCompleter->hidePopup();
+    }
+
+    QPlainTextEdit::mousePressEvent(event);
 }
 
 void LuaEditor::resizeEvent(QResizeEvent *event)
@@ -905,6 +918,53 @@ void LuaEditor::invalidateCompletionCache()
     m_cachedGlobalItems.clear();
     m_memberCacheValid.clear();
     m_cachedMemberItems.clear();
+}
+
+QStringList LuaEditor::smartSortCompletionItems(const QStringList& items, const QString& prefix) const
+{
+    if (prefix.isEmpty()) {
+        // No prefix - just alphabetical sort
+        QStringList sorted = items;
+        sorted.sort(Qt::CaseInsensitive);
+        return sorted;
+    }
+
+    // Separate items into different priority groups
+    QStringList exactMatches;      // Exact matches (prefix == item)
+    QStringList prefixMatches;     // Items that start with prefix
+    QStringList containsMatches;   // Items that contain prefix
+    QStringList otherItems;        // Everything else
+
+    const QString lowerPrefix = prefix.toLower();
+
+    for (const QString& item : items) {
+        const QString lowerItem = item.toLower();
+
+        if (lowerItem == lowerPrefix) {
+            exactMatches.append(item);
+        } else if (lowerItem.startsWith(lowerPrefix)) {
+            prefixMatches.append(item);
+        } else if (lowerItem.contains(lowerPrefix)) {
+            containsMatches.append(item);
+        } else {
+            otherItems.append(item);
+        }
+    }
+
+    // Sort each group alphabetically
+    exactMatches.sort(Qt::CaseInsensitive);
+    prefixMatches.sort(Qt::CaseInsensitive);
+    containsMatches.sort(Qt::CaseInsensitive);
+    otherItems.sort(Qt::CaseInsensitive);
+
+    // Combine in priority order
+    QStringList result;
+    result += exactMatches;
+    result += prefixMatches;
+    result += containsMatches;
+    result += otherItems;
+
+    return result;
 }
 
 QStringList LuaEditor::buildCompletionItems() const
