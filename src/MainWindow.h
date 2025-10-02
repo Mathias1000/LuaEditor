@@ -30,6 +30,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    bool eventFilter(QObject *obj, QEvent *event) override;
 
 private slots:
     void newFile();
@@ -44,6 +45,9 @@ private slots:
     void onFunctionsItemClicked(QListWidgetItem* item);
     void onTablesItemClicked(QListWidgetItem* item);
     void onLoadSymbolClicked();
+    void toggleGlobalsList();
+    void toggleFunctionsList();
+    void toggleTablesList();
 
 private:
     void setupUi();
@@ -53,6 +57,7 @@ private:
     void createConnections();
     void updateWindowTitle();
     void updateStatusBar();
+    void hideAllPopups();
     [[nodiscard]] bool maybeSave();
     [[nodiscard]] bool saveDocument(const QString& fileName);
     void setCurrentFile(const QString& fileName);
@@ -64,15 +69,20 @@ private:
     std::unique_ptr<AutoCompleter> m_completer;
 
     QWidget* m_centralWidget{nullptr};
-    QWidget* m_symbolPanel{nullptr};  // Panel containing button and lists
+    QWidget* m_symbolPanel{nullptr};
 
     // LoadSymbol button
     QPushButton* m_loadSymbolButton{nullptr};
 
-    // Three symbol list boxes
-    QListWidget* m_globalsList{nullptr};      // Global variables/functions
-    QListWidget* m_functionsList{nullptr};    // Function definitions
-    QListWidget* m_tablesList{nullptr};       // Tables/modules
+    // Popup toggle buttons
+    QPushButton* m_globalsButton{nullptr};
+    QPushButton* m_functionsButton{nullptr};
+    QPushButton* m_tablesButton{nullptr};
+
+    // Three symbol list boxes (popup style)
+    QListWidget* m_globalsList{nullptr};
+    QListWidget* m_functionsList{nullptr};
+    QListWidget* m_tablesList{nullptr};
 
     // Actions
     QAction* m_newAction{nullptr};
